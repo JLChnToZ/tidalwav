@@ -11,6 +11,12 @@ namespace Tidalwav.Editor
     /// </summary>
     public class WavLoopEditorWindow : EditorWindow
     {
+#if UNITY_2020_2_OR_NEWER
+        static readonly Func<int> GetPreviewClipSamplePosition;
+#else
+        static readonly Func<AudioClip, int> GetClipSamplePosition;
+#endif
+
         [SerializeField] private AudioClip _wavClip;
 
         private bool _useSeconds;
@@ -22,10 +28,27 @@ namespace Tidalwav.Editor
         private Vector2 _previewScrollPos;
         private int _lastPreviewSample;
 
+        static WavLoopEditorWindow()
+        {
+            var audioUtil = Assembly.GetAssembly(typeof(UnityEditor.Editor)).GetType("UnityEditor.AudioUtil");
+#if UNITY_2020_2_OR_NEWER
+            GetPreviewClipSamplePosition = (Func<int>)Delegate.CreateDelegate(typeof(Func<int>),
+                audioUtil.GetMethod("GetPreviewClipSamplePosition"));
+#else
+            GetClipSamplePosition = (Func<AudioClip, int>) Delegate.CreateDelegate(typeof(Func<AudioClip, int>),
+                audioUtil.GetMethod("GetClipSamplePosition"));
+#endif
+        }
+
         [MenuItem("Window/Audio/WAV Loop Editor")]
         public static void Open()
         {
-            GetWindow<WavLoopEditorWindow>().Show();
+           var window = GetWindow<WavLoopEditorWindow>();
+           window.Show();
+           if (window._wavClip != null) return;
+           var selectedAudioClips = Selection.GetFiltered<AudioClip>(SelectionMode.Assets);
+           if (selectedAudioClips != null && selectedAudioClips.Length > 0)
+               window._wavClip = selectedAudioClips[0];
         }
 
         private void OnEnable()
@@ -105,7 +128,7 @@ namespace Tidalwav.Editor
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     GUILayout.Label("Display time in", GUILayout.Width(145));
-                    _useSeconds = GUILayout.Toolbar(_useSeconds ? 1 : 0, new[] {"Samples", "Minutes:Seconds"},
+                    _useSeconds = GUILayout.Toolbar(_useSeconds ? 1 : 0, new[] { "Samples", "Minutes:Seconds" },
                                       GUILayout.MaxWidth(250)) == 1;
                 }
 
@@ -274,11 +297,11 @@ namespace Tidalwav.Editor
             using (new EditorGUILayout.HorizontalScope())
             {
                 GUILayout.Label("Set Loop Point to Current Preview Position: ", GUILayout.ExpandWidth(false));
-                GUILayout.Label(_useSeconds 
+                GUILayout.Label(_useSeconds
                     ? SecondsToDurationString(SamplesToSeconds(_lastPreviewSample))
                     : _lastPreviewSample.ToString(),
                     GUILayout.Width(80));
-                
+
                 if (GUILayout.Button("Start", GUILayout.Width(80)))
                 {
                     _wavData.GetOrAddFirstLoop().StartSample = _lastPreviewSample;
@@ -311,20 +334,21 @@ namespace Tidalwav.Editor
 
         private int GetSamplePosition()
         {
-            var audioUtil = Assembly.GetAssembly(typeof(UnityEditor.Editor)).GetType("UnityEditor.AudioUtil");
-            // ReSharper disable once PossibleNullReferenceException
-            return (int) audioUtil?.GetMethod("GetClipSamplePosition")?
-                .Invoke(null, new object[] {_wavClip});
+#if UNITY_2020_2_OR_NEWER
+            return GetPreviewClipSamplePosition();
+#else
+            return GetClipSamplePosition(_wavClip);
+#endif
         }
 
         private long SecondsToSamples(float seconds)
         {
-            return (long) Mathf.Round(seconds * _wavClip.frequency);
+            return (long)Mathf.Round(seconds * _wavClip.frequency);
         }
 
         private float SamplesToSeconds(long samples)
         {
-            return (float) (samples / (double) _wavClip.frequency);
+            return (float)(samples / (double)_wavClip.frequency);
         }
 
         private string SecondsToDurationString(float inputSeconds)
